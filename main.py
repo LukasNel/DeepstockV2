@@ -8,7 +8,7 @@ huggingface_secret = modal.Secret.from_name(
 app = App("deepstock-v2")
 GPU_USED = "A100-80GB:3"
 DATASET_ID="2084Collective/deepstock-sp500-companies-with-info-and-user-prompt_buy_sell"
-MODEL_ID="deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"
+MODEL_ID="deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
 def download_models():
     # Load model directly
     from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -38,7 +38,7 @@ apt-get install -y cuda-toolkit
     .pip_install("wandb")
     .pip_install("peft")
     #install fromm https://github.com/huggingface/trl/compare/main...LukasNel:trl:patch-2
-    .add_local_file("lotus_diabetes_seek.py", "/open-r1/src/open_r1/grpo_lukas.py")
+    .add_local_file("deepstock.py", "/open-r1/src/open_r1/grpo_lukas.py")
 )
 
 
@@ -52,12 +52,29 @@ async def run_training():
     import subprocess
     os.chdir('/open-r1')
     with open('zero3.yaml', 'w') as f:
+        f.write("""
+compute_environment: LOCAL_MACHINE
+debug: false
+deepspeed_config:
+  zero_stage: 3
+distributed_type: DEEPSPEED
+downcast_bf16: 'no'
+machine_rank: 0
+main_training_function: main
+mixed_precision: bf16
+num_machines: 1
+num_processes: 4
+rdzv_backend: static
+same_network: true
+tpu_env: []
+tpu_use_cluster: false
+tpu_use_sudo: false
+use_cpu: false
+""")
 #         f.write("""
 # compute_environment: LOCAL_MACHINE
 # debug: false
-# deepspeed_config:
-#   zero_stage: 3
-# distributed_type: DEEPSPEED
+# distributed_type: FSDP
 # downcast_bf16: 'no'
 # machine_rank: 0
 # main_training_function: main
@@ -70,36 +87,8 @@ async def run_training():
 # tpu_use_cluster: false
 # tpu_use_sudo: false
 # use_cpu: false
-# """)
-        f.write("""
-            compute_environment: LOCAL_MACHINE
-debug: false
-distributed_type: FSDP
-downcast_bf16: 'no'
-fsdp_config:
-  fsdp_auto_wrap_policy: TRANSFORMER_BASED_WRAP
-  fsdp_backward_prefetch_policy: BACKWARD_PRE
-  fsdp_forward_prefetch: false
-  fsdp_cpu_ram_efficient_loading: true
-  fsdp_offload_params: true
-  fsdp_sharding_strategy: FULL_SHARD
-  fsdp_state_dict_type: SHARDED_STATE_DICT
-  fsdp_sync_module_states: true
-  fsdp_transformer_layer_cls_to_wrap: Qwen2DecoderLayer
-  fsdp_use_orig_params: true
-machine_rank: 0
-main_training_function: main
-mixed_precision: bf16
-num_machines: 1
-num_processes: 4
-rdzv_backend: static
-same_network: true
-tpu_env: []
-tpu_use_cluster: false
-tpu_use_sudo: false
-use_cpu: false
-"""
-            )
+# """
+            # )
 
         
     cmd = [
@@ -121,11 +110,16 @@ use_cpu: false
         '--logging_steps', '1',
         '--log_level', 'debug',
         '--run_name', 'deepstock-check',
+        "--optim", "adamw_8bit",
         # '--project_name', 'diabetesseek',
         # "--repo_id", "2084Collective/deepstock-v1",
         '--num_train_epochs', '1',
+        "--gradient_checkpointing","true",
         '--bf16', 'true',
-        # "--use_peft", "true",  
+        "--use_peft", "true", 
+        "--r", "8",
+        "--lora_alpha", "16",
+        
     ]
     subprocess.run(cmd, check=True)
     
